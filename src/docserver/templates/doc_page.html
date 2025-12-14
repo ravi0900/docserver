@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - Code2Docs{% endblock %}
+
+{% block content %}
+    <h1>{{ title }}</h1>
+    <div>
+        {{ content|safe }}
+    </div>
+{% endblock %}

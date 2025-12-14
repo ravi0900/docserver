@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Code2Docs{% endblock %}
+
+{% block content %}
+    <h1>Available Documentation</h1>
+    <ul>
+        {% for doc in docs %}
+            <li><a href="{{ url_for('doc_page', filename=doc) }}">{{ doc }}</a></li>
+        {% else %}
+            <li>No documentation found.</li>
+        {% endfor %}
+    </ul>
+{% endblock %}
