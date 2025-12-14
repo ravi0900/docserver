@@ -1,6 +1,7 @@
 import os
 import git
 import mistune
+import time
 from flask import Flask, render_template, abort
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -9,7 +10,7 @@ import argparse
 # --- Configuration ---
 DOCS_DIR = "docs"
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-SUPPORTED_EXTENSIONS = [".py", ".js", ".html", ".css", ".md"] # Add more as needed
+SUPPORTED_EXTENSIONS = [".py", ".js", ".html", ".css"] # Add more as needed
 
 # --- Flask App ---
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
@@ -24,14 +25,10 @@ def get_git_repo(path):
 
 def is_ignored(filepath, repo):
     """Checks if a file is ignored by .gitignore."""
-    print(f"Checking if {filepath} is ignored.")
     if not repo:
-        print("No repo found.")
         return False
     try:
-        ignored = repo.is_ignored(filepath)
-        print(f"{filepath} is ignored: {ignored}")
-        return ignored
+        return repo.is_ignored(filepath)
     except Exception as e:
         print(f"Error checking if {filepath} is ignored: {e}")
         return False
@@ -80,7 +77,9 @@ def scan_and_generate(project_path):
     """Scans the project directory and generates documentation for all supported files."""
     repo = get_git_repo(project_path)
     print(f"Repo: {repo}")
-    for root, _, files in os.walk(project_path):
+    for root, dirs, files in os.walk(project_path):
+        if DOCS_DIR in dirs:
+            dirs.remove(DOCS_DIR)
         for file in files:
             filepath = os.path.join(root, file)
             if not is_ignored(filepath, repo) and os.path.splitext(file)[1] in SUPPORTED_EXTENSIONS:
@@ -91,13 +90,18 @@ class DocGeneratorEventHandler(FileSystemEventHandler):
     """Handles file system events to trigger documentation generation."""
     def __init__(self, project_path):
         self.project_path = project_path
+        self.docs_dir_path = os.path.join(project_path, DOCS_DIR)
 
     def on_modified(self, event):
         if not event.is_directory and os.path.splitext(event.src_path)[1] in SUPPORTED_EXTENSIONS:
+            if event.src_path.startswith(self.docs_dir_path):
+                return
             generate_doc(event.src_path, self.project_path)
 
     def on_created(self, event):
         if not event.is_directory and os.path.splitext(event.src_path)[1] in SUPPORTED_EXTENSIONS:
+            if event.src_path.startswith(self.docs_dir_path):
+                return
             generate_doc(event.src_path, self.project_path)
 
 # --- Flask Routes ---
@@ -125,38 +129,60 @@ def doc_page(filename):
 # --- Main Execution ---
 def main():
     parser = argparse.ArgumentParser(description="Generate and serve documentation for a code project.")
-    parser.add_argument("project_dir", nargs="?", default=".", help="The directory of the project to document.")
-    parser.add_argument("-ig", "--ignore-git", action="store_true", help="Run docserver even if the directory is not a Git repository.")
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.required = True
+
+    # generate command
+    parser_generate = subparsers.add_parser("generate", help="Generate documentation for a project.")
+    parser_generate.add_argument("project_dir", nargs="?", default=".", help="The directory of the project to document.")
+    parser_generate.add_argument("-w", "--watch", action="store_true", help="Watch for file changes and regenerate documentation.")
+    parser_generate.add_argument("-ig", "--ignore-git", action="store_true", help="Run docserver even if the directory is not a Git repository.")
+    
+    # run command
+    parser_run = subparsers.add_parser("run", help="Serve the generated documentation.")
+    parser_run.add_argument("project_dir", nargs="?", default=".", help="The directory of the project where docs/ are located.")
+    
     args = parser.parse_args()
 
     project_path = os.path.abspath(args.project_dir)
+    docs_path = os.path.join(project_path, DOCS_DIR)
 
-    # Check if it's a git repository
-    if not args.ignore_git:
-        try:
-            git.Repo(project_path, search_parent_directories=True)
-        except git.InvalidGitRepositoryError:
-            print("Error: This is not a Git repository. Use the -ig or --ignore-git flag to run anyway.")
+    if args.command == "generate":
+        if not args.ignore_git:
+            try:
+                git.Repo(project_path, search_parent_directories=True)
+            except git.InvalidGitRepositoryError:
+                print("Error: This is not a Git repository. Use the -ig or --ignore-git flag to run anyway.")
+                return
+
+        if not os.path.exists(docs_path):
+            os.makedirs(docs_path)
+        
+        scan_and_generate(project_path)
+        print("Documentation generated.")
+
+        if args.watch:
+            event_handler = DocGeneratorEventHandler(project_path)
+            observer = Observer()
+            observer.schedule(event_handler, project_path, recursive=True)
+            observer.start()
+            print("Watching for changes...")
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                observer.stop()
+            observer.join()
+
+    elif args.command == "run":
+        app.config["DOCS_DIR"] = docs_path
+        if not os.path.exists(docs_path):
+            print(f"Docs directory not found at '{docs_path}'.")
+            print("Please run 'docserver generate' first.")
             return
 
-    docs_path = os.path.join(project_path, DOCS_DIR)
-    
-    app.config["DOCS_DIR"] = docs_path
-
-    if not os.path.exists(docs_path):
-        os.makedirs(docs_path)
-
-    # Initial scan and generation
-    scan_and_generate(project_path)
-
-    # Start the file watcher
-    event_handler = DocGeneratorEventHandler(project_path)
-    observer = Observer()
-    observer.schedule(event_handler, project_path, recursive=True)
-    observer.start()
-
-    # Start the Flask app
-    app.run(debug=True)
+        print(f"Serving documentation from '{docs_path}'...")
+        app.run(debug=True)
 
 if __name__ == "__main__":
     main()
