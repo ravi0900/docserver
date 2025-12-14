@@ -1,188 +1,80 @@
 import os
-import git
 import mistune
-import time
-from flask import Flask, render_template, abort
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-import argparse
-
-# --- Configuration ---
-DOCS_DIR = "docs"
-TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-SUPPORTED_EXTENSIONS = [".py", ".js", ".html", ".css"] # Add more as needed
+import subprocess
+from flask import Flask, render_template, request, jsonify
 
 # --- Flask App ---
-app = Flask(__name__, template_folder=TEMPLATES_DIR)
+# Initialize Flask to look for templates in the 'templates' directory
+app = Flask("docserver")
 
-# --- Core Logic ---
-def get_git_repo(path):
-    """Initializes and returns the Git repository object."""
-    try:
-        return git.Repo(path, search_parent_directories=True)
-    except git.InvalidGitRepositoryError:
-        return None
-
-def is_ignored(filepath, repo):
-    """Checks if a file is ignored by .gitignore."""
-    if not repo:
-        return False
-    try:
-        return repo.is_ignored(filepath)
-    except Exception as e:
-        print(f"Error checking if {filepath} is ignored: {e}")
-        return False
-
-def extract_comments(filepath):
-    """Extracts comments from a file and returns them as a string."""
-    comments = []
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("#"): # Python comments
-                    comments.append(line.lstrip("# ").strip())
-                elif line.startswith("//"): # JavaScript, CSS comments
-                    comments.append(line.lstrip("// ").strip())
-                elif line.startswith("/*") and line.endswith("*/"): # CSS, JS block comments
-                    comments.append(line.strip("/*").strip("*/").strip())
-    except Exception as e:
-        print(f"Error reading {filepath}: {e}")
-    return "\\n".join(comments)
-
-def generate_doc(filepath, project_path):
-    """Generates a markdown documentation file from a source file."""
-    filename = os.path.basename(filepath)
-    doc_content = f"# {filename}\\n\\n"
-    doc_content += "## Summary\\n\\n"
-    doc_content += extract_comments(filepath)
-    doc_content += "\\n\\n## Full Code\\n\\n"
+# --- Core AI Logic ---
+def call_ai_analyzer(code_snippet):
+    """
+    Placeholder for calling an AI tool (e.g., cline cli) to explain a code snippet.
+    This mock implementation returns a generic response.
+    """
+    prompt = f"Please provide a detailed explanation for the following code snippet. Focus on its purpose, how it works, and potential use cases. The audience is another developer.\n\n```\n{code_snippet}\n```"
+    print(f"--- AI PROMPT ---\n{prompt}\n-----------------")
     
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            code = f.read()
-        doc_content += f"```\\n{code}\\n```"
-    except Exception as e:
-        print(f"Error reading {filepath} for code block: {e}")
-        return
-
-    doc_filename = f"{os.path.splitext(filename)[0]}.md"
-    doc_filepath = os.path.join(project_path, DOCS_DIR, doc_filename)
+    # In a real implementation, you would use subprocess to call an external tool:
+    # result = subprocess.run(['cline', 'ask', prompt], capture_output=True, text=True)
+    # explanation_md = result.stdout
     
-    with open(doc_filepath, "w", encoding="utf-8") as f:
-        f.write(doc_content)
-    print(f"Generated documentation for {filename}")
+    # Mock response for now:
+    explanation_md = f"""
+# AI Code Explanation
 
-def scan_and_generate(project_path):
-    """Scans the project directory and generates documentation for all supported files."""
-    repo = get_git_repo(project_path)
-    print(f"Repo: {repo}")
-    for root, dirs, files in os.walk(project_path):
-        if DOCS_DIR in dirs:
-            dirs.remove(DOCS_DIR)
-        for file in files:
-            filepath = os.path.join(root, file)
-            if not is_ignored(filepath, repo) and os.path.splitext(file)[1] in SUPPORTED_EXTENSIONS:
-                generate_doc(filepath, project_path)
+Here is a breakdown of the code you provided:
 
-# --- File Watching ---
-class DocGeneratorEventHandler(FileSystemEventHandler):
-    """Handles file system events to trigger documentation generation."""
-    def __init__(self, project_path):
-        self.project_path = project_path
-        self.docs_dir_path = os.path.join(project_path, DOCS_DIR)
+## Purpose
+This section would describe the high-level goal of the code. It appears to be a Python script using the Flask web framework.
 
-    def on_modified(self, event):
-        if not event.is_directory and os.path.splitext(event.src_path)[1] in SUPPORTED_EXTENSIONS:
-            if event.src_path.startswith(self.docs_dir_path):
-                return
-            generate_doc(event.src_path, self.project_path)
+## Key Components
+- **Function/Class 1**: A detailed explanation of the first major part of the code.
+- **Variable `foo`**: What this variable is used for.
+- **Logic Block**: How the main conditional or loop works.
 
-    def on_created(self, event):
-        if not event.is_directory and os.path.splitext(event.src_path)[1] in SUPPORTED_EXTENSIONS:
-            if event.src_path.startswith(self.docs_dir_path):
-                return
-            generate_doc(event.src_path, self.project_path)
+## Use Case
+A typical use case for this code would be to serve as a web endpoint in a larger application. For example, it could handle user authentication or data processing.
+
+---
+*This explanation was generated by a mock AI.*
+"""
+    return explanation_md
 
 # --- Flask Routes ---
 @app.route("/")
 def index():
-    """Renders the index page with a list of available documentation."""
-    docs_dir = app.config.get("DOCS_DIR", DOCS_DIR)
-    docs = [f for f in os.listdir(docs_dir) if f.endswith(".md")]
-    return render_template("index.html", docs=docs)
+    """Renders the main demo page."""
+    return render_template("index.html")
 
-@app.route("/docs/<filename>")
-def doc_page(filename):
-    """Renders a specific documentation page."""
-    docs_dir = app.config.get("DOCS_DIR", DOCS_DIR)
-    filepath = os.path.join(docs_dir, filename)
-    if not os.path.exists(filepath):
-        abort(404)
-        
-    with open(filepath, "r", encoding="utf-8") as f:
-        content_md = f.read()
-        
-    content_html = mistune.html(content_md)
-    return render_template("doc_page.html", content=content_html, title=filename)
+@app.route("/api/explain", methods=["POST"])
+def explain_code():
+    """
+    API endpoint that receives code, gets an explanation from the AI,
+    and returns it as HTML.
+    """
+    data = request.get_json()
+    if not data or "code" not in data:
+        return jsonify({"error": "No code provided"}), 400
+    
+    code_snippet = data["code"]
+    
+    # Get the explanation in Markdown format
+    explanation_md = call_ai_analyzer(code_snippet)
+    
+    # Convert Markdown to HTML for direct rendering on the frontend
+    explanation_html = mistune.html(explanation_md)
+    
+    return jsonify({"explanation_html": explanation_html})
 
 # --- Main Execution ---
 def main():
-    parser = argparse.ArgumentParser(description="Generate and serve documentation for a code project.")
-    subparsers = parser.add_subparsers(dest="command")
-    subparsers.required = True
-
-    # generate command
-    parser_generate = subparsers.add_parser("generate", help="Generate documentation for a project.")
-    parser_generate.add_argument("project_dir", nargs="?", default=".", help="The directory of the project to document.")
-    parser_generate.add_argument("-w", "--watch", action="store_true", help="Watch for file changes and regenerate documentation.")
-    parser_generate.add_argument("-ig", "--ignore-git", action="store_true", help="Run docserver even if the directory is not a Git repository.")
-    
-    # run command
-    parser_run = subparsers.add_parser("run", help="Serve the generated documentation.")
-    parser_run.add_argument("project_dir", nargs="?", default=".", help="The directory of the project where docs/ are located.")
-    
-    args = parser.parse_args()
-
-    project_path = os.path.abspath(args.project_dir)
-    docs_path = os.path.join(project_path, DOCS_DIR)
-
-    if args.command == "generate":
-        if not args.ignore_git:
-            try:
-                git.Repo(project_path, search_parent_directories=True)
-            except git.InvalidGitRepositoryError:
-                print("Error: This is not a Git repository. Use the -ig or --ignore-git flag to run anyway.")
-                return
-
-        if not os.path.exists(docs_path):
-            os.makedirs(docs_path)
-        
-        scan_and_generate(project_path)
-        print("Documentation generated.")
-
-        if args.watch:
-            event_handler = DocGeneratorEventHandler(project_path)
-            observer = Observer()
-            observer.schedule(event_handler, project_path, recursive=True)
-            observer.start()
-            print("Watching for changes...")
-            try:
-                while True:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                observer.stop()
-            observer.join()
-
-    elif args.command == "run":
-        app.config["DOCS_DIR"] = docs_path
-        if not os.path.exists(docs_path):
-            print(f"Docs directory not found at '{docs_path}'.")
-            print("Please run 'docserver generate' first.")
-            return
-
-        print(f"Serving documentation from '{docs_path}'...")
-        app.run(debug=True)
+    """Runs the Flask web server for the demo."""
+    print("Starting DocServer Demo at http://127.0.0.1:5000")
+    # Use os.environ.get to be compatible with production servers like Gunicorn
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
 
 if __name__ == "__main__":
     main()

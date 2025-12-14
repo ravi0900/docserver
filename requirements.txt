@@ -1,4 +1,2 @@
-watchdog
 Flask
-GitPython
 mistune

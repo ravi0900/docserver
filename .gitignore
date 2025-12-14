@@ -7,3 +7,4 @@ build
 build/*
 docserver.egg-info/
 docserver.egg-info/*
+.aider*
