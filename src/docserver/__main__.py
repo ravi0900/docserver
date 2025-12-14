@@ -9,7 +9,6 @@ import argparse
 # --- Configuration ---
 DOCS_DIR = "docs"
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-EXCLUDED_DIRS = ["venv", ".git", "__pycache__", "docs", "templates"]
 SUPPORTED_EXTENSIONS = [".py", ".js", ".html", ".css", ".md"] # Add more as needed
 
 # --- Flask App ---
@@ -25,11 +24,16 @@ def get_git_repo(path):
 
 def is_ignored(filepath, repo):
     """Checks if a file is ignored by .gitignore."""
+    print(f"Checking if {filepath} is ignored.")
     if not repo:
+        print("No repo found.")
         return False
     try:
-        return repo.is_ignored(filepath)
-    except Exception:
+        ignored = repo.is_ignored(filepath)
+        print(f"{filepath} is ignored: {ignored}")
+        return ignored
+    except Exception as e:
+        print(f"Error checking if {filepath} is ignored: {e}")
         return False
 
 def extract_comments(filepath):
@@ -75,11 +79,8 @@ def generate_doc(filepath, project_path):
 def scan_and_generate(project_path):
     """Scans the project directory and generates documentation for all supported files."""
     repo = get_git_repo(project_path)
+    print(f"Repo: {repo}")
     for root, _, files in os.walk(project_path):
-        # Exclude specified directories
-        if any(d in root for d in EXCLUDED_DIRS):
-            continue
-            
         for file in files:
             filepath = os.path.join(root, file)
             if not is_ignored(filepath, repo) and os.path.splitext(file)[1] in SUPPORTED_EXTENSIONS:
